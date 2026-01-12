@@ -105,6 +105,9 @@ install_flux_command() {
   fi
 
   $SUDO_CMD mkdir -p "$(dirname "$FLUX_BIN")"
+  if [[ -e "$FLUX_BIN" ]]; then
+    $SUDO_CMD rm -f "$FLUX_BIN"
+  fi
   if command -v install >/dev/null 2>&1; then
     $SUDO_CMD install -m 0755 "$src" "$FLUX_BIN"
   else
@@ -676,6 +679,8 @@ main() {
     delete_self
     exit 0
   fi
+
+  ensure_flux_command
 
   run_menu
   delete_self
