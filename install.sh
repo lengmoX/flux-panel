@@ -563,7 +563,7 @@ print_instances_with_ids() {
   local i
   for i in "${!names[@]}"; do
     local id=$((i + 1))
-    printf "  ID %d: %s  addr=%s  [%s/%s]  service=%s  dir=%s\n" \
+    printf "ID %d: %s addr=%s [%s/%s] service=%s dir=%s\n" \
       "$id" "${names[$i]}" "${addrs[$i]}" "${enableds[$i]}" "${actives[$i]}" "${svcs[$i]}" "${dirs[$i]}"
   done
   return 0
@@ -625,7 +625,7 @@ select_instance_by_id_or_name() {
 }
 
 list_instances() {
-  echo "已对接面板实例（扫描：$BASE_DIR）"
+  echo "已对接实例列表（扫描：$BASE_DIR）"
   print_instances_with_ids "" || true
 }
 
