@@ -2,20 +2,10 @@
 set -euo pipefail
 
 # ============================================================
-# Flux Panel 节点端（gost）管理脚本：支持一台机器对接多个面板
+# 兼容脚本：install-multi.sh
 #
-# 原理：为每个面板创建独立的 gost 实例目录 + systemd 服务，
-#      避免覆盖 /etc/gost/config.json 与 gost.service 导致互相影响。
-#
-# 用法示例：
-#   1) 默认实例（兼容旧单实例）：
-#        ./install.sh -a 1.2.3.4:8080 -s SECRET
-#   2) 第二个面板实例（多面板）：
-#        ./install.sh -i panel2 -a 5.6.7.8:8080 -s SECRET2
-#
-# 可选环境变量：
-#   DOWNLOAD_URL=...     指定 gost 下载地址（覆盖默认）
-#   NO_DELETE_SELF=1     不删除脚本文件
+# 当前 install.sh 已内置“多面板/多实例”能力；本脚本保留同等功能，
+# 方便仍在使用 install-multi.sh 的用户直接升级到新版本。
 # ============================================================
 
 BASE_DIR="/etc/gost"
@@ -328,7 +318,6 @@ update_gost() {
 uninstall_default_dir_safely() {
   local removed_any=false
 
-  # 只删除默认实例的文件，避免误删 /etc/gost 下的其他实例目录
   for f in "$BASE_DIR/gost" "$BASE_DIR/config.json" "$BASE_DIR/gost.json" "$BASE_DIR/gost.new"; do
     if [[ -e "$f" ]]; then
       $SUDO_CMD rm -f "$f"
@@ -336,7 +325,6 @@ uninstall_default_dir_safely() {
     fi
   done
 
-  # 如果目录空了，再尝试删除目录
   if [[ -d "$BASE_DIR" ]]; then
     local remain_count
     set +e
@@ -405,7 +393,6 @@ list_instances() {
   echo "已安装实例列表（扫描：$BASE_DIR）"
   require_systemd
 
-  # 默认实例
   local default_active default_enabled
   default_active="$($SUDO_CMD systemctl is-active gost 2>/dev/null || echo unknown)"
   default_enabled="$($SUDO_CMD systemctl is-enabled gost 2>/dev/null || echo unknown)"
@@ -456,7 +443,6 @@ show_menu() {
 }
 
 main() {
-  # 如果命令行传了 a+s（以及可选 i），直接安装对应实例
   if [[ -n "$SERVER_ADDR" && -n "$SECRET" ]]; then
     install_gost
     delete_self
@@ -464,7 +450,6 @@ main() {
   fi
 
   while true; do
-    # 每次循环清空可交互输入，避免上一次影响下一次
     INSTANCE_NAME=""
     SERVER_ADDR=""
     SECRET=""
