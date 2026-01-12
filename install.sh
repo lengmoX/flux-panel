@@ -252,8 +252,6 @@ get_instance_name() {
     normalize_instance_name
     return 0
   fi
-  echo ""
-  echo "建议：先用“列出实例”查看已有列表。"
   read -r -p "实例名称（如 default / panel2）: " INSTANCE_NAME
   normalize_instance_name
 }
@@ -371,7 +369,14 @@ install_instance() {
 update_instance() {
   echo "开始更新实例..."
   require_systemd
-  get_instance_name
+  if [[ -z "$INSTANCE_NAME" ]]; then
+    if ! select_instance_by_id_or_name "更新"; then
+      echo "已取消"
+      return 0
+    fi
+  else
+    normalize_instance_name
+  fi
   set_instance_paths
 
   if [[ ! -d "$INSTALL_DIR" ]]; then
@@ -414,7 +419,14 @@ remove_instance_dir() {
 uninstall_instance() {
   echo "开始删除实例..."
   require_systemd
-  get_instance_name
+  if [[ -z "$INSTANCE_NAME" ]]; then
+    if ! select_instance_by_id_or_name "删除"; then
+      echo "已取消"
+      return 0
+    fi
+  else
+    normalize_instance_name
+  fi
   set_instance_paths
 
   echo "将删除：实例 [$INSTANCE_NAME]"
@@ -445,7 +457,14 @@ uninstall_instance() {
 status_instance() {
   echo "查看实例状态..."
   require_systemd
-  get_instance_name
+  if [[ -z "$INSTANCE_NAME" ]]; then
+    if ! select_instance_by_id_or_name "查看状态"; then
+      echo "已取消"
+      return 0
+    fi
+  else
+    normalize_instance_name
+  fi
   set_instance_paths
 
   echo "实例名: $INSTANCE_NAME"
@@ -460,7 +479,14 @@ status_instance() {
 logs_instance() {
   echo "查看实例日志..."
   require_systemd
-  get_instance_name
+  if [[ -z "$INSTANCE_NAME" ]]; then
+    if ! select_instance_by_id_or_name "查看日志"; then
+      echo "已取消"
+      return 0
+    fi
+  else
+    normalize_instance_name
+  fi
   set_instance_paths
 
   echo "服务名称: $SERVICE_NAME"
@@ -486,38 +512,121 @@ read_config_value() {
   sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$file" | head -n 1
 }
 
-list_instances() {
-  echo "已对接实例列表（扫描：$BASE_DIR）"
+discover_instances() {
+  # 输出：name<TAB>dir<TAB>svc<TAB>active<TAB>enabled<TAB>addr
   require_systemd
 
   if [[ ! -d "$BASE_DIR" ]]; then
-    echo "（暂无：$BASE_DIR 不存在）"
     return 0
   fi
 
   shopt -s nullglob
   local d
-  local found=0
   for d in "$BASE_DIR"/*; do
     [[ -d "$d" ]] || continue
     local name svc active enabled addr
     name="$(basename "$d")"
+    [[ -z "$name" ]] && continue
     svc="$(service_name_for_instance "$name")"
     active="$($SUDO_CMD systemctl is-active "$svc" 2>/dev/null || echo unknown)"
     enabled="$($SUDO_CMD systemctl is-enabled "$svc" 2>/dev/null || echo unknown)"
     addr="$(read_config_value "$d/config.json" "addr")"
-    if [[ -z "$addr" ]]; then
-      addr="-"
-    fi
-    printf " - %-16s  service=%-18s  active=%-10s  enabled=%-10s  addr=%-22s  dir=%s\n" \
-      "$name" "$svc" "$active" "$enabled" "$addr" "$d"
-    found=1
+    [[ -z "$addr" ]] && addr="-"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$name" "$d" "$svc" "$active" "$enabled" "$addr"
   done
   shopt -u nullglob
+}
 
-  if [[ "$found" == "0" ]]; then
-    echo "（暂无：未发现任何实例目录）"
+print_instances_with_ids() {
+  local purpose="${1:-实例列表}"
+
+  local -a names dirs svcs actives enableds addrs
+  local line
+  while IFS=$'\t' read -r name dir svc active enabled addr; do
+    [[ -z "${name:-}" ]] && continue
+    names+=("$name")
+    dirs+=("$dir")
+    svcs+=("$svc")
+    actives+=("$active")
+    enableds+=("$enabled")
+    addrs+=("$addr")
+  done < <(discover_instances)
+
+  if [[ -n "$purpose" ]]; then
+    echo "$purpose:"
   fi
+  if [[ ${#names[@]} -eq 0 ]]; then
+    echo "  （暂无：未发现任何实例目录：$BASE_DIR/*）"
+    return 1
+  fi
+
+  local i
+  for i in "${!names[@]}"; do
+    local id=$((i + 1))
+    printf "  ID %d: %s  addr=%s  [%s/%s]  service=%s  dir=%s\n" \
+      "$id" "${names[$i]}" "${addrs[$i]}" "${enableds[$i]}" "${actives[$i]}" "${svcs[$i]}" "${dirs[$i]}"
+  done
+  return 0
+}
+
+select_instance_by_id_or_name() {
+  local action="${1:-操作}"
+
+  local -a names
+  local line
+  while IFS=$'\t' read -r name _dir _svc _active _enabled _addr; do
+    [[ -z "${name:-}" ]] && continue
+    names+=("$name")
+  done < <(discover_instances)
+
+  if [[ ${#names[@]} -eq 0 ]]; then
+    echo "未发现任何实例，请先“新增/安装实例”。"
+    return 1
+  fi
+
+  # 只有一个实例时，直接选中
+  if [[ ${#names[@]} -eq 1 ]]; then
+    INSTANCE_NAME="${names[0]}"
+    return 0
+  fi
+
+  print_instances_with_ids "已对接面板实例" || true
+
+  local input
+  while true; do
+    read -r -p "请输入要${action}的实例ID（或实例名，q取消）: " input
+    input="${input:-}"
+
+    if [[ "$input" == "q" || "$input" == "Q" ]]; then
+      return 1
+    fi
+
+    if [[ "$input" =~ ^[0-9]+$ ]]; then
+      local idx=$((input - 1))
+      if (( idx >= 0 && idx < ${#names[@]} )); then
+        INSTANCE_NAME="${names[$idx]}"
+        return 0
+      fi
+      echo "无效 ID：$input"
+      continue
+    fi
+
+    # 按名称匹配
+    local n
+    for n in "${names[@]}"; do
+      if [[ "$n" == "$input" ]]; then
+        INSTANCE_NAME="$n"
+        return 0
+      fi
+    done
+
+    echo "未找到实例：$input"
+  done
+}
+
+list_instances() {
+  echo "已对接面板实例（扫描：$BASE_DIR）"
+  print_instances_with_ids "" || true
 }
 
 show_menu() {
