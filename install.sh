@@ -120,9 +120,7 @@ ensure_flux_command() {
   if [[ "$IS_FLUX_CMD" == "1" ]]; then
     return 0
   fi
-  if [[ -x "$FLUX_BIN" ]]; then
-    return 0
-  fi
+  # Always refresh flux command when running from a script to avoid stale versions.
   install_flux_command >/dev/null 2>&1 || true
 }
 
